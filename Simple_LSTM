@@ -24,26 +24,16 @@ import sys
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
-KERAS_DATASETS_DIR = expanduser('~/.keras/datasets/')
-QUESTION_PAIRS_FILE_URL = 'http://qim.ec.quoracdn.net/quora_duplicate_questions.tsv'
-QUESTION_PAIRS_FILE = 'quora_duplicate_questions.tsv'
 GLOVE_ZIP_FILE_URL = 'http://nlp.stanford.edu/data/glove.840B.300d.zip'
-GLOVE_ZIP_FILE = 'glove.840B.300d.zip'
-GLOVE_FILE = 'glove.840B.300d.txt'
-Q1_TRAINING_DATA_FILE = 'q1_train.npy'
-Q2_TRAINING_DATA_FILE = 'q2_train.npy'
-LABEL_TRAINING_DATA_FILE = 'label_train.npy'
-WORD_EMBEDDING_MATRIX_FILE = 'word_embedding_matrix.npy'
-NB_WORDS_DATA_FILE = 'nb_words.json'
 MAX_NB_WORDS = 200000
 MAX_SEQUENCE_LENGTH = 25
 EMBEDDING_DIM = 300
-MODEL_WEIGHTS_FILE = 'question_pairs_weights.h5'
 VALIDATION_SPLIT = 0.1
 TEST_SPLIT = 0.1
 RNG_SEED = 13371447
 NB_EPOCHS = 25
 
+'''Reading Data From CSV Files'''
 test_question1 = []
 test_question2 = []
 
@@ -57,34 +47,27 @@ with io.open('train.csv') as csvfile:
         train_question1.append(row['question1'])
         train_question2.append(row['question2'])
         is_duplicate.append(row['is_duplicate'])
-
 with io.open('test.csv') as csvfile:
     reader = csv.DictReader(csvfile)
     for row in reader:
-        train_question1.append(row['question1'])
-        train_question2.append(row['question2'])
+        test_question1.append(row['question1'])
+        test_question2.append(row['question2'])
 
-questions = train_question1+train_question2
-questions2 =test_question1+test_question2
-
+'''Tokenizing the Sentences ands Converting them to Sequences'''
+questions = train_question1+train_question2+test_question1+test_question2
 tokenizer = Tokenizer(nb_words=MAX_NB_WORDS)
-tokenizer2= Tokenizer(nb_words=MAX_NB_WORDS)
-
 tokenizer.fit_on_texts(questions)
-tokenizer2.fit_on_texts(questions2)
-
 train_question1_word_sequences = tokenizer.texts_to_sequences(train_question1)
 train_question2_word_sequences = tokenizer.texts_to_sequences(train_question2)
-
-
+test_question1_word_sequences = tokenizer.texts_to_sequences(test_question1)
+test_question2_word_sequences = tokenizer.texts_to_sequences(test_question2)
 word_index = tokenizer.word_index
 
-if not exists(KERAS_DATASETS_DIR + GLOVE_ZIP_FILE):
-    zipfile = ZipFile(get_file(GLOVE_ZIP_FILE, GLOVE_ZIP_FILE_URL))
-    zipfile.extract(GLOVE_FILE, path=KERAS_DATASETS_DIR)
+
+'''Using the GloVe Vector'''
 
 embeddings_index = {}
-with open(KERAS_DATASETS_DIR + GLOVE_FILE) as f:
+with open('glove.840B.300d.txt') as f:
     for line in f:
         values = line.split(' ')
         word = values[0]
@@ -101,19 +84,27 @@ for word, i in word_index.items():
         word_embedding_matrix[i] = embedding_vector
 
 
-        
+''' Padding all the vectors in same size'''
 train_q1_data = pad_sequences(train_question1_word_sequences, maxlen=MAX_SEQUENCE_LENGTH)
 train_q2_data = pad_sequences(train_question2_word_sequences, maxlen=MAX_SEQUENCE_LENGTH)
 labels = np.array(is_duplicate, dtype=int)
 
-print("Worked Well")
+test_q1_data = pad_sequences(test_question1_word_sequences, maxlen=MAX_SEQUENCE_LENGTH)
+test_q2_data = pad_sequences(test_question2_word_sequences, maxlen=MAX_SEQUENCE_LENGTH)
+
+
+'''Saving the numpy arrays for later usage'''
 np.save(open('train_Q1', 'wb'), train_q1_data)
 np.save(open('train_Q2', 'wb'), train_q2_data)
-np.save(open(LABEL_TRAINING_DATA_FILE, 'wb'), labels)
-np.save(open(WORD_EMBEDDING_MATRIX_FILE, 'wb'), word_embedding_matrix)
-with open(NB_WORDS_DATA_FILE, 'w') as f:
+np.save(open('test_Q1', 'wb'), test_q1_data)
+np.save(open('test_Q2', 'wb'), test_q2_data)
+np.save(open('label_train.npy', 'wb'), labels)
+np.save(open('word_embedding_matrix.npy', 'wb'), word_embedding_matrix)
+with open('nb_words.json', 'w') as f:
     json.dump({'nb_words': nb_words}, f)
 
+
+'''Creating The Training and Validation Set'''
 X = np.stack((train_q1_data, train_q2_data), axis=1)
 y = labels
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SPLIT, random_state=RNG_SEED)
@@ -123,28 +114,24 @@ Q2_train = X_train[:, 1]
 Q1_test = X_test[:, 0]
 Q2_test = X_test[:, 1]
 
-y_train=y_train[:1000]
-print(len(Q1_train))
-print(len(Q2_train))
-print(Q1_train.shape)
-
-#
-Q1 = Sequential()
-Q1.add(Embedding(nb_words + 1, EMBEDDING_DIM, weights=[word_embedding_matrix], input_length=MAX_SEQUENCE_LENGTH,
-                 trainable=False))
-Q1.add(TimeDistributed(Dense(EMBEDDING_DIM, activation='relu')))
+Q1_test=test_q1_data
+Q2_test=test_q2_data
 
 
-Q2 = Sequential()
-Q2.add(Embedding(nb_words + 1, EMBEDDING_DIM, weights=[word_embedding_matrix], input_length=MAX_SEQUENCE_LENGTH,
-                 trainable=False))
-Q2.add(TimeDistributed(Dense(EMBEDDING_DIM, activation='relu')))
+'''Model Creation'''
+def MODEL():
+    Q1=Sequential()
+    Q1.add(Embedding(nb_words + 1, EMBEDDING_DIM, weights=[word_embedding_matrix], input_length=MAX_SEQUENCE_LENGTH,
+                     trainable=False))
+    Q1.add(TimeDistributed(Dense(EMBEDDING_DIM, activation='relu')))
+    return Q1
 
+Q1=MODEL()
+Q2=MODEL()
 
 model = Sequential()
 model.add(Merge([Q1, Q2], mode='concat'))
 model.add(BatchNormalization())
-
 model.add(LSTM(20, dropout=0.2, recurrent_dropout=0.2,activation='relu'))
 model.add(Dense(1, activation='sigmoid'))
 
@@ -152,14 +139,13 @@ model.add(Dense(1, activation='sigmoid'))
 model.compile(loss='binary_crossentropy',
               optimizer='adam',
               metrics=['accuracy'])
-F1=""
-F3=F1+"-weights-improvement-{epoch:02d}-{val_acc:.4f}.hdf5"
+
+F3="weights-improvement-{epoch:02d}-{val_acc:.4f}.hdf5"
 filepath=F3
 callbacks = [ModelCheckpoint(filepath, monitor='val_acc', save_best_only=True)]
-
 history = model.fit([Q1_train, Q2_train],
                     y_train,
-                    nb_epoch=1,
+                    nb_epoch=NB_EPOCHS,
                     validation_split=VALIDATION_SPLIT,
                     verbose=1,
                     callbacks=callbacks)
