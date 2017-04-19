@@ -1,0 +1,94 @@
+from __future__ import print_function
+import numpy as np
+import csv, datetime, time, json
+from zipfile import ZipFile
+from os.path import expanduser, exists
+from keras.preprocessing.text import Tokenizer
+from keras.preprocessing.sequence import pad_sequences
+from keras.models import Sequential
+from keras.layers import Embedding, Dense, Dropout, Reshape, Merge, BatchNormalization, TimeDistributed, Lambda
+from keras.regularizers import l2
+from keras.callbacks import Callback, ModelCheckpoint
+from keras.utils.data_utils import get_file
+from keras import backend as K
+from sklearn.model_selection import train_test_split
+import io
+import shutil
+from keras.layers import Dense, Embedding, Input
+from keras.layers import LSTM
+from keras.datasets import imdb
+import sys
+from keras.models import Sequential, Model
+import sys
+
+reload(sys)
+sys.setdefaultencoding('utf-8')
+
+LABEL_TRAINING_DATA_FILE = 'label_train.npy'
+WORD_EMBEDDING_MATRIX_FILE = 'word_embedding_matrix.npy'
+NB_WORDS_DATA_FILE = 'nb_words.json'
+RNG_SEED = 13371447
+VALIDATION_SPLIT = 0.1
+TEST_SPLIT = 0.1
+MAX_NB_WORDS = 200000
+MAX_SEQUENCE_LENGTH = 25
+EMBEDDING_DIM = 300
+
+
+train_q1_data=np.load(open('train_Q1', 'rb'))
+train_q2_data=np.load(open('train_Q2', 'rb'))
+test_q1_data=np.load(open('test_Q1', 'rb'))
+test_q2_data=np.load(open('test_Q2', 'rb'))
+labels = np.load(open(LABEL_TRAINING_DATA_FILE, 'rb'))
+word_embedding_matrix = np.load(open(WORD_EMBEDDING_MATRIX_FILE, 'rb'))
+with open(NB_WORDS_DATA_FILE, 'r') as f:
+    nb_words = json.load(f)['nb_words']
+
+
+'''Creating The Training and Validation Set'''
+X = np.stack((train_q1_data, train_q2_data), axis=1)
+y = labels
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SPLIT, random_state=RNG_SEED)
+
+Q1_train = X_train[:, 0]
+Q2_train = X_train[:, 1]
+Q1_test = X_test[:, 0]
+Q2_test = X_test[:, 1]
+
+Q1_test=test_q1_data
+Q2_test=test_q2_data
+
+
+'''Model Creation'''
+def MODEL():
+    Q1=Sequential()
+    Q1.add(Embedding(nb_words + 1, EMBEDDING_DIM, weights=[word_embedding_matrix], input_length=MAX_SEQUENCE_LENGTH,
+                     trainable=False))
+    Q1.add(TimeDistributed(Dense(EMBEDDING_DIM, activation='relu')))
+    return Q1
+
+Q1=MODEL()
+Q2=MODEL()
+
+model = Sequential()
+model.add(Merge([Q1, Q2], mode='concat'))
+model.add(BatchNormalization())
+model.add(LSTM(20, dropout=0.2, recurrent_dropout=0.2,activation='relu'))
+model.add(Dense(1, activation='sigmoid'))
+
+
+model.compile(loss='binary_crossentropy',
+              optimizer='adam',
+              metrics=['accuracy'])
+
+F3="weights-improvement-{epoch:02d}-{val_acc:.4f}.hdf5"
+filepath=F3
+callbacks = [ModelCheckpoint(filepath, monitor='val_acc', save_best_only=True)]
+history = model.fit([Q1_train, Q2_train],
+                    y_train,
+                    nb_epoch=28,
+                    validation_split=VALIDATION_SPLIT,
+                    verbose=1,
+                    callbacks=callbacks)
+
+predicted = model.predict_proba([Q1_test,Q2_test])
