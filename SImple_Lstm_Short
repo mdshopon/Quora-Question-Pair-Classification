@@ -55,8 +55,6 @@ Q2_train = X_train[:, 1]
 Q1_test = X_test[:, 0]
 Q2_test = X_test[:, 1]
 
-Q1_test=test_q1_data
-Q2_test=test_q2_data
 
 
 '''Model Creation'''
@@ -86,9 +84,23 @@ filepath=F3
 callbacks = [ModelCheckpoint(filepath, monitor='val_acc', save_best_only=True)]
 history = model.fit([Q1_train, Q2_train],
                     y_train,
-                    nb_epoch=28,
+                    nb_epoch=25,
                     validation_split=VALIDATION_SPLIT,
                     verbose=1,
                     callbacks=callbacks)
 
+# model.load_weights('Weight.hdf5')
+
+Q1_test,Q2_test=test_q1_data,test_q2_data
+
 predicted = model.predict_proba([Q1_test,Q2_test])
+
+with open('Output.csv', 'wb') as f:
+    wtr = csv.writer(f, delimiter='\t')
+    i=0
+    wtr.writerows([['test_id', 'duplicate']])
+    for i in range(len(predicted)):
+        val=predicted[i][0]
+        print(val)
+        wtr.writerows([[i,val]])
+        i += 1
