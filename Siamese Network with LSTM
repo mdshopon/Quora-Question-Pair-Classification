@@ -1,0 +1,95 @@
+from __future__ import print_function
+import csv, datetime, time, json
+from keras.callbacks import Callback, ModelCheckpoint
+from sklearn.model_selection import train_test_split
+import sys
+import numpy.random as rng
+import numpy as np
+from keras.models import Sequential, Model
+from keras.layers import Dense, Dropout, Input, Lambda,GRU,Embedding, LSTM
+from keras import backend as K
+from keras.layers import Merge
+
+reload(sys)
+sys.setdefaultencoding('utf-8')
+
+LABEL_TRAINING_DATA_FILE = 'label_train.npy'
+WORD_EMBEDDING_MATRIX_FILE = 'word_embedding_matrix.npy'
+NB_WORDS_DATA_FILE = 'nb_words.json'
+RNG_SEED = 13371447
+VALIDATION_SPLIT = 0.02
+TEST_SPLIT = 0.02
+MAX_NB_WORDS = 200000
+MAX_SEQUENCE_LENGTH = 25
+EMBEDDING_DIM = 300
+
+
+def euclidean_distance(vects):
+    x, y = vects
+    return K.sqrt(K.maximum(K.sum(K.square(x - y), axis=1, keepdims=True), K.epsilon()))
+
+
+def eucl_dist_output_shape(shapes):
+    shape1, shape2 = shapes
+    return (shape1[0], 1)
+
+def W_init(shape,name=None):
+    """Initialize weights as in paper"""
+    values = rng.normal(loc=0,scale=1e-2,size=shape)
+    return K.variable(values,name=name)
+#//TODO: figure out how to initialize layer biases in keras.
+def b_init(shape,name=None):
+    """Initialize bias as in paper"""
+    values=rng.normal(loc=0.5,scale=1e-2,size=shape)
+    return K.variable(values,name=name)
+
+def Aeuclidean_distance(inputs):
+    assert len(inputs) == 2, \
+        'Euclidean distance needs 2 inputs, %d given' % len(inputs)
+    u, v = inputs
+    return K.sqrt((K.square(u - v)).sum(axis=1, keepdims=True))
+
+
+train_q1_data=np.load(open('train_Q1', 'rb'))
+train_q2_data=np.load(open('train_Q2', 'rb'))
+test_q1_data=np.load(open('test_Q1', 'rb'))
+test_q2_data=np.load(open('test_Q2', 'rb'))
+labels = np.load(open(LABEL_TRAINING_DATA_FILE, 'rb'))
+word_embedding_matrix = np.load(open(WORD_EMBEDDING_MATRIX_FILE, 'rb'))
+with open(NB_WORDS_DATA_FILE, 'r') as f:
+    nb_words = json.load(f)['nb_words']
+
+
+'''Creating The Training and Validation Set'''
+X = np.stack((train_q1_data, train_q2_data), axis=1)
+y = labels
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SPLIT, random_state=RNG_SEED)
+
+Q1_train = X_train[:, 0]
+Q2_train = X_train[:, 1]
+Q1_test = X_test[:, 0]
+Q2_test = X_test[:, 1]
+
+model1=Sequential()
+model1.add(Embedding(nb_words+1,EMBEDDING_DIM,input_length=MAX_SEQUENCE_LENGTH,mask_zero=True,trainable=False,weights=[word_embedding_matrix]))
+model1.add(LSTM(output_dim=128,return_sequences=False,go_backwards=True,init='he_normal'))
+model1.add(Dropout(0.5))
+
+model2=Sequential()
+model2.add(Embedding(nb_words+1,EMBEDDING_DIM,input_length=MAX_SEQUENCE_LENGTH,mask_zero=True,trainable=False,weights=[word_embedding_matrix]))
+model2.add(LSTM(output_dim=128,return_sequences=False,go_backwards=True,init='he_normal'))
+model2.add(Dropout(0.5))
+
+main_model=Sequential()
+merged=Merge([model1,model2],mode=lambda x: ((x[0]-x[1])*(x[0]-x[1])),output_shape=[128])
+main_model.add(merged)
+main_model.add(Dense(1,activation='sigmoid'))
+
+main_model.compile(loss='binary_crossentropy',
+              optimizer='rmsprop',
+              metrics=['accuracy'])
+F3="Epochs/weights-improvement-{epoch:02d}-{val_acc:.4f}.hdf5"
+filepath=F3
+callbacks = [ModelCheckpoint(filepath, monitor='val_acc', save_best_only=True)]
+
+main_model.fit([Q1_train,Q2_train],y_train,nb_epoch=30, batch_size=128,verbose=1,shuffle=True,callbacks=callbacks,validation_data=([Q1_test,Q2_test],y_test))
