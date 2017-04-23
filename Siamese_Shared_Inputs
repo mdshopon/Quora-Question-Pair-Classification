@@ -1,8 +1,4 @@
 
-''' raise MissingInputError(error_msg, variable=r)
-theano.gof.fg.MissingInputError: Input 0 of the graph (indices start from 0), used to compute Elemwise{neq,no_inplace}(/input_3, InplaceDimShuffle{x,x}.0), was not provided and not given a value. Use the Theano flag exception_verbosity='high', for more information on this error.
-Backtrace when that variable is created:'''
-
 
 from __future__ import print_function
 import csv, datetime, time, json
